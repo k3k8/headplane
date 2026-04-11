@@ -19,6 +19,11 @@ jobs:
   docker:
     name: Docker Release (${{ matrix.target }})
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         include:
