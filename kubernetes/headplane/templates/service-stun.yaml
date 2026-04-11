@@ -1,0 +1,23 @@
+{{- if .Values.stun.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: headscale-stun
+  {{- if .Values.stun.annotations }}
+  annotations:
+    {{- toYaml .Values.stun.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.stun.type }}
+  {{- if .Values.stun.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.stun.loadBalancerIP }}
+  {{- end }}
+  ports:
+    - name: stun
+      port: {{ .Values.stun.port }}
+      protocol: UDP
+      targetPort: 3478
+  selector:
+    app: headplane
+{{- end }}

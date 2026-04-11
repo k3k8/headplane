@@ -1,0 +1,43 @@
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headplane
+  {{- if .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+  {{- end }}
+  {{- if .Values.ingress.labels }}
+  labels:
+    {{- toYaml .Values.ingress.labels | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.headscaleDomain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: headscale
+                port:
+                  number: 80
+    - host: {{ .Values.ingress.headplaneDomain }}
+      http:
+        paths:
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: headplane
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - {{ .Values.ingress.headplaneDomain }}
+        - {{ .Values.ingress.headscaleDomain }}
+      secretName: {{ .Values.ingress.tlsSecretName }}
+{{- end }}
