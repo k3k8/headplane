@@ -145,18 +145,7 @@ export async function userAction({ request, context }: Route.ActionArgs) {
         });
       }
 
-      const users = await api.getUsers(userId);
-      const user = users.find((user) => user.id === userId);
-      if (!user) {
-        throw data("Specified user not found", { status: 400 });
-      }
-
-      const subject = getOidcSubject(user);
-      if (!subject) {
-        throw data("Specified user is not an OIDC user or has no subject.", { status: 400 });
-      }
-
-      const linked = await context.auth.linkHeadscaleUserBySubject(subject, headscaleUserId);
+      const linked = await context.auth.linkHeadscaleUser(userId, headscaleUserId);
       if (!linked) {
         throw data("That Headscale user is already linked to another account.", { status: 409 });
       }
