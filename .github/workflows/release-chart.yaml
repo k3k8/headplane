@@ -14,27 +14,79 @@ concurrency:
   group: release-chart
   cancel-in-progress: false
 
+permissions:
+  contents: write  # GitHub Release の作成
+  pages: write     # Pages へのデプロイ
+  id-token: write  # OIDC token (Pages に必要)
+
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
       - name: Install Helm
         uses: azure/setup-helm@v4
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
-        with:
-          charts_dir: kubernetes
+      - name: Get chart version
+        id: chart
+        run: |
+          VERSION=$(grep '^version:' kubernetes/headplane/Chart.yaml | awk '{print $2}')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=chart-v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Package chart
+        run: helm package kubernetes/headplane --destination /tmp/charts
+
+      - name: Upload chart to GitHub Release
         env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.chart.outputs.tag }}"
+          VERSION="${{ steps.chart.outputs.version }}"
+          ASSET="/tmp/charts/headplane-${VERSION}.tgz"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "Release $TAG already exists — uploading asset"
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" \
+              --title "Helm Chart v${VERSION}" \
+              --notes "Helm chart release for headplane v${VERSION}"
+          fi
+
+      - name: Build Helm repo index
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/repo
+
+          PAGES_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.chart.outputs.tag }}"
+
+          # tgz は GitHub Release 側に置くので index の URL をそこに向ける
+          cp /tmp/charts/headplane-${{ steps.chart.outputs.version }}.tgz /tmp/repo/
+
+          # 既存 index があればマージして全バージョンを保持
+          if curl -sf "${PAGES_URL}/index.yaml" -o /tmp/existing-index.yaml; then
+            helm repo index /tmp/repo \
+              --url "$RELEASE_URL" \
+              --merge /tmp/existing-index.yaml
+          else
+            helm repo index /tmp/repo --url "$RELEASE_URL"
+          fi
+
+          # Pages には index.yaml だけ置く（tgz は Release 側）
+          rm /tmp/repo/*.tgz
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: /tmp/repo
+
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
