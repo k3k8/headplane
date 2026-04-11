@@ -1,0 +1,74 @@
+{{- if .Values.relay.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tailscale-relay
+  labels:
+    app: tailscale-relay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tailscale-relay
+  template:
+    metadata:
+      labels:
+        app: tailscale-relay
+    spec:
+      serviceAccountName: tailscale-relay
+      containers:
+        - name: tailscale
+          image: "{{ .Values.relay.image.repository }}:{{ .Values.relay.image.tag }}"
+          imagePullPolicy: {{ .Values.relay.image.pullPolicy }}
+          env:
+            {{- $extraArgs := list }}
+            {{- if .Values.relay.config.loginServer }}
+            {{- $extraArgs = append $extraArgs (printf "--login-server=%s" .Values.relay.config.loginServer) }}
+            {{- end }}
+            {{- if .Values.relay.config.advertiseExitNode }}
+            {{- $extraArgs = append $extraArgs "--advertise-exit-node" }}
+            {{- end }}
+            {{- if gt (len $extraArgs) 0 }}
+            - name: TS_EXTRA_ARGS
+              value: {{ join " " $extraArgs | quote }}
+            {{- end }}
+            {{- if .Values.relay.config.exitNode }}
+            - name: TS_EXIT_NODE
+              value: {{ .Values.relay.config.exitNode | quote }}
+            {{- end }}
+            {{- if .Values.relay.config.hostname }}
+            - name: TS_HOSTNAME
+              value: {{ .Values.relay.config.hostname | quote }}
+            {{- end }}
+            {{- if .Values.relay.config.routes }}
+            - name: TS_ROUTES
+              value: {{ .Values.relay.config.routes | quote }}
+            {{- end }}
+            {{- if .Values.relay.config.firewallDebug }}
+            - name: TS_DEBUG_FIREWALL_MODE
+              value: "true"
+            {{- end }}
+            - name: TS_KUBE_SECRET
+              value: {{ .Values.relay.authKey.secretName | quote }}
+            - name: TS_USERSPACE
+              value: "true"
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.relay.authKey.secretName }}
+                  key: {{ .Values.relay.authKey.secretKey }}
+                  optional: true
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+{{- end }}

@@ -1,0 +1,90 @@
+{{- if .Values.headplane.config.generateCredentials }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: headplane-scripts
+data:
+  ensure-headscale-api-key.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    NAMESPACE="${NAMESPACE:?NAMESPACE env var not set}"
+    HEADSCALE_SECRET_NAME="${HEADSCALE_SECRET_NAME:?HEADSCALE_SECRET_NAME env var not set}"
+    HEADSCALE_HOST="http://127.0.0.1:8080"
+
+    check_key() {
+      local key="$1"
+      local status
+      status=$(curl -sf -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $key" \
+        "${HEADSCALE_HOST}/api/v1/user" 2>/dev/null || echo "000")
+      [[ "$status" =~ ^2 ]]
+    }
+
+    # Wait for headscale to be ready
+    echo "Waiting for headscale at ${HEADSCALE_HOST}..."
+    retries=0
+    until curl -sf -o /dev/null "${HEADSCALE_HOST}/health"; do
+      retries=$((retries + 1))
+      if [[ "$retries" -ge 60 ]]; then
+        echo "Error: headscale did not become ready after 60s"
+        exit 1
+      fi
+      sleep 1
+    done
+    echo "Headscale is ready."
+
+    # Check for an existing valid API key in the secret
+    echo "Checking for existing secret '${HEADSCALE_SECRET_NAME}'..."
+    ENCODED=$(kubectl get secret "$HEADSCALE_SECRET_NAME" -n "$NAMESPACE" \
+      -o jsonpath='{.data.api-key}' --ignore-not-found 2>/dev/null || echo "")
+
+    if [[ -n "$ENCODED" ]]; then
+      EXISTING_KEY=$(echo "$ENCODED" | base64 -d)
+      echo "Found existing API key — validating..."
+      if check_key "$EXISTING_KEY"; then
+        echo "Existing API key is valid. Nothing to do."
+        exit 0
+      fi
+      echo "Existing API key is invalid — generating a new one."
+    else
+      echo "Secret not found — generating a new API key."
+    fi
+
+    # Find our own pod by label so we can exec into the headscale sidecar
+    POD=$(kubectl get pod -n "$NAMESPACE" -l "app=headplane" \
+      -o jsonpath="{.items[0].metadata.name}" --ignore-not-found)
+    if [[ -z "$POD" ]]; then
+      echo "Error: could not find a headplane pod in namespace '${NAMESPACE}'"
+      exit 1
+    fi
+    echo "Using pod: $POD"
+
+    # Generate API key via the headscale CLI inside the sidecar
+    echo "Running: headscale apikeys create -e 100y"
+    API_KEY=$(kubectl exec -n "$NAMESPACE" -c headscale "$POD" -- headscale apikeys create -e 100y)
+    if [[ -z "$API_KEY" ]]; then
+      echo "Error: headscale returned an empty API key"
+      exit 1
+    fi
+
+    # Persist the key in a Kubernetes Secret
+    if kubectl get secret "$HEADSCALE_SECRET_NAME" -n "$NAMESPACE" &>/dev/null; then
+      echo "Updating existing secret..."
+      kubectl patch secret "$HEADSCALE_SECRET_NAME" -n "$NAMESPACE" \
+        -p "{\"stringData\":{\"api-key\":\"$API_KEY\"}}" --type=merge
+    else
+      echo "Creating new secret..."
+      kubectl create secret generic "$HEADSCALE_SECRET_NAME" -n "$NAMESPACE" \
+        --from-literal="api-key=$API_KEY"
+    fi
+
+    # Final sanity check
+    if check_key "$API_KEY"; then
+      echo "API key validated and stored in secret '${HEADSCALE_SECRET_NAME}'."
+    else
+      echo "Error: newly generated API key failed validation"
+      exit 1
+    fi
+{{- end }}

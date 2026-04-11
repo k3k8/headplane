@@ -1,0 +1,174 @@
+headplane:
+  image:
+    repository: ghcr.io/tale/headplane
+    pullPolicy: IfNotPresent
+    # Defaults to Chart.AppVersion
+    tag: ""
+  config:
+    # Public base URL for headplane (used for server.base_url and OIDC redirect URI)
+    # e.g. https://headplane.example.com — headplane UI will be at <base_url>/admin
+    url: https://headplane.example.com
+    debug: false
+    # Automatically generate a Headscale API key on first deploy.
+    # Requires pods/exec and secrets create/patch permissions (included in the default Role).
+    generateCredentials: false
+    cookieSecret:
+      # Plaintext value — leave empty to auto-generate a random 32-char secret
+      value: ""
+      # Reference an existing Secret instead of creating one
+      secretName: ~
+      secretKey: "cookie-secret"
+    # Headscale API key used by headplane to authenticate with headscale.
+    # Required regardless of OIDC. If generateCredentials is true, this is auto-created.
+    headscaleApiKey:
+      value: ""
+      secretName: ~
+      secretKey: "api-key"
+    oidc:
+      enabled: false
+      issuerUrl: ""
+      clientId: ""
+      clientSecret:
+        value: ""
+        secretName: ~
+        secretKey: "client-secret"
+      disableApiKeyLogin: false
+      usePkce: false
+      tokenEndpointAuthMethod: ~
+  persistence:
+    enabled: false
+    pvc:
+      name: headplane-data
+      accessModes:
+        - ReadWriteOnce
+      storage: 1Gi
+      annotations: {}
+      labels: {}
+      storageClassName: ~
+  securityContext:
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    runAsUser: 1000
+
+headscale:
+  image:
+    repository: headscale/headscale
+    pullPolicy: IfNotPresent
+    tag: "0.28.0"
+  config:
+    # Public URL for Headscale coordination server
+    url: https://headscale.example.com
+    database:
+      # "sqlite" or "postgres"
+      type: sqlite
+      postgres:
+        host: ""
+        port: 5432
+        name: headscale
+        user: headscale
+        sslMode: disable
+        # Password — provide via value or reference an existing Secret
+        password:
+          value: ""
+          secretName: ~
+          secretKey: "password"
+    derp:
+      # Built-in DERP/STUN server — useful when no external DERP is available
+      server:
+        enabled: false
+        regionId: 999
+        regionCode: "headscale"
+        regionName: "Headscale Embedded DERP"
+        privateKeyPath: /etc/headscale/derp_server_private.key
+      # External DERP map URLs (set to [] to disable)
+      urls:
+        - https://controlplane.tailscale.com/derpmap/default
+      paths: []
+    dns:
+      magicDns: true
+      baseDomain: example.com
+      nameservers:
+        global:
+          - 9.9.9.9
+          - 149.112.112.112
+          - 2620:fe::fe
+          - 2620:fe::9
+        # Split DNS: map of domain -> list of nameservers
+        # acm.org:
+        #   - 192.168.1.1
+        split: {}
+    oidc:
+      enabled: false
+      issuerUrl: ""
+      clientId: ""
+      clientSecret:
+        value: ""
+        secretName: ~
+        secretKey: "client-secret"
+      startupCheck: true
+      pkceEnabled: true
+      allowedDomains: []
+      allowedUsers: []
+  # Persistence covers /etc/headscale (config, database, keys).
+  # Strongly recommended for production — data is lost on pod restart otherwise.
+  persistence:
+    enabled: false
+    pvc:
+      name: headscale-config
+      accessModes:
+        - ReadWriteOnce
+      storage: 5Gi
+      annotations: {}
+      labels: {}
+      storageClassName: ~
+  securityContext:
+    capabilities:
+      drop:
+        - ALL
+    runAsNonRoot: true
+    runAsUser: 1000
+
+# Separate LoadBalancer service for STUN (UDP 3478).
+# Required for Tailscale clients to establish direct connections.
+stun:
+  enabled: false
+  type: LoadBalancer
+  port: 3478
+  loadBalancerIP: ""
+  annotations: {}
+
+# Tailscale relay StatefulSet deployed alongside headplane/headscale
+relay:
+  enabled: false
+  image:
+    repository: ghcr.io/tailscale/tailscale
+    pullPolicy: IfNotPresent
+    tag: "v1.80.3"
+  config:
+    hostname: ""
+    loginServer: ""
+    advertiseExitNode: false
+    exitNode: ""
+    routes: ""
+    firewallDebug: false
+  authKey:
+    # Secret must contain the key specified by secretKey
+    secretName: tailscale-auth
+    secretKey: TS_AUTHKEY
+
+podSecurityContext:
+  fsGroup: 2000
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  labels: {}
+  headplaneDomain: headplane.example.com
+  headscaleDomain: headscale.example.com
+  tlsSecretName: headplane-tls
+
+hostAliases: []
+extraObjects: []

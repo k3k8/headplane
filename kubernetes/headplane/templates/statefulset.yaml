@@ -1,0 +1,198 @@
+---
+# Requires Kubernetes 1.29+ for sidecar initContainers (restartPolicy: Always)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: headplane
+  labels:
+    app: headplane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: headplane
+  template:
+    metadata:
+      labels:
+        app: headplane
+      annotations:
+        checksum/configmap-headplane: {{ include (print $.Template.BasePath "/configmap-headplane.yaml") . | sha256sum }}
+        checksum/configmap-headscale: {{ include (print $.Template.BasePath "/configmap-headscale.yaml") . | sha256sum }}
+        checksum/secret-headplane: {{ include (print $.Template.BasePath "/secret-headplane.yaml") . | sha256sum }}
+        checksum/secret-headscale: {{ include (print $.Template.BasePath "/secret-headscale.yaml") . | sha256sum }}
+    spec:
+      {{- if .Values.hostAliases }}
+      hostAliases: {{- toYaml .Values.hostAliases | nindent 8 }}
+      {{- end }}
+      shareProcessNamespace: true
+      serviceAccountName: headplane
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        # Copy the default Headscale config from ConfigMap to the writable volume on first run.
+        # Headplane needs write access to /etc/headscale/config.yaml in integrated mode.
+        - name: copy-headscale-config
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -f /etc/headscale/config.yaml ]; then
+                cp /headscale-default-config/config.yaml /etc/headscale/config.yaml
+                echo "Copied default headscale config to volume"
+              else
+                echo "Headscale config already exists, skipping"
+              fi
+          volumeMounts:
+            - name: headscale-config
+              mountPath: /etc/headscale
+            - name: headscale-default-config
+              mountPath: /headscale-default-config
+        # Headscale runs as a sidecar so it starts before headplane and restarts on failure.
+        - name: headscale
+          image: "{{ required "headscale.image.repository is required" .Values.headscale.image.repository }}:{{ required "headscale.image.tag is required" .Values.headscale.image.tag }}"
+          imagePullPolicy: {{ .Values.headscale.image.pullPolicy }}
+          restartPolicy: Always
+          args:
+            - serve
+          ports:
+            - name: api
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 50443
+              protocol: TCP
+            - name: stun
+              containerPort: 3478
+              protocol: UDP
+          env:
+            {{- if .Values.headscale.config.oidc.enabled }}
+            - name: HEADSCALE_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "headscale-oidc-client-secret" .Values.headscale.config.oidc.clientSecret.secretName }}
+                  key: {{ .Values.headscale.config.oidc.clientSecret.secretKey }}
+            {{- end }}
+            {{- if eq .Values.headscale.config.database.type "postgres" }}
+            - name: HEADSCALE_DATABASE_POSTGRES_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "headscale-db-password" .Values.headscale.config.database.postgres.password.secretName }}
+                  key: {{ .Values.headscale.config.database.postgres.password.secretKey }}
+            {{- end }}
+          securityContext: {{- toYaml .Values.headscale.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: headscale-config
+              mountPath: /etc/headscale
+              readOnly: false
+        {{- if .Values.headplane.config.generateCredentials }}
+        # Generates a Headscale API key and stores it as a Kubernetes Secret.
+        # Runs after headscale sidecar is ready, before headplane starts.
+        - name: generate-headscale-token
+          image: alpine/k8s:1.33.1
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HEADSCALE_SECRET_NAME
+              value: {{ default "headscale-api-key" .Values.headplane.config.headscaleApiKey.secretName }}
+          command: ["bash", "-c"]
+          args: ["/etc/scripts/ensure-headscale-api-key.sh"]
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - name: headplane-scripts
+              mountPath: /etc/scripts
+        {{- end }}
+      containers:
+        - name: headplane
+          image: "{{ required "headplane.image.repository is required" .Values.headplane.image.repository }}:{{ .Values.headplane.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.headplane.image.pullPolicy }}
+          env:
+            - name: HEADPLANE_DEBUG_LOG
+              value: {{ .Values.headplane.config.debug | quote }}
+            - name: HEADPLANE_LOAD_ENV_OVERRIDES
+              value: "true"
+            - name: HEADPLANE_INTEGRATION__KUBERNETES__POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: app
+              containerPort: 3000
+              protocol: TCP
+          securityContext: {{- toYaml .Values.headplane.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: headplane-config
+              mountPath: /etc/headplane
+            - name: headplane-server-cookie-secret
+              mountPath: /var/secrets/headplane/server
+            - name: headplane-headscale-api-key
+              mountPath: /var/secrets/headplane/headscale
+            {{- if .Values.headplane.config.oidc.enabled }}
+            - name: headplane-oidc-client-secret
+              mountPath: /var/secrets/headplane/oidc
+            {{- end }}
+            - name: headplane-data
+              mountPath: /var/lib/headplane
+              readOnly: false
+            - name: headscale-config
+              mountPath: /etc/headscale
+              readOnly: false
+      volumes:
+        ###
+        ### Headplane volumes
+        ###
+        - name: headplane-config
+          configMap:
+            name: headplane-config
+        - name: headplane-server-cookie-secret
+          secret:
+            secretName: {{ default "headplane-cookie-secret" .Values.headplane.config.cookieSecret.secretName }}
+        - name: headplane-headscale-api-key
+          secret:
+            secretName: {{ default "headscale-api-key" .Values.headplane.config.headscaleApiKey.secretName }}
+            # optional=true when generateCredentials is enabled: the secret is created by the
+            # generate-headscale-token init container, so it may not exist on the very first pod
+            # start. kubelet will populate the volume once the secret appears.
+            optional: {{ .Values.headplane.config.generateCredentials }}
+        {{- if .Values.headplane.config.oidc.enabled }}
+        - name: headplane-oidc-client-secret
+          secret:
+            secretName: {{ default "headplane-oidc-client-secret" .Values.headplane.config.oidc.clientSecret.secretName }}
+        {{- end }}
+        - name: headplane-data
+          {{- if .Values.headplane.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.headplane.persistence.pvc.name }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: 500Mi
+          {{- end }}
+        {{- if .Values.headplane.config.generateCredentials }}
+        - name: headplane-scripts
+          configMap:
+            name: headplane-scripts
+            defaultMode: 0777
+        {{- end }}
+        ###
+        ### Headscale volumes
+        ###
+        # Default config template — init container copies this to the writable volume on first run
+        - name: headscale-default-config
+          configMap:
+            name: headscale-default-config
+        # Writable volume for /etc/headscale (config + database + keys + unix socket)
+        - name: headscale-config
+          {{- if .Values.headscale.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.headscale.persistence.pvc.name }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: 5Gi
+          {{- end }}
