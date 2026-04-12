@@ -36,7 +36,7 @@ headplane:
       usePkce: false
       tokenEndpointAuthMethod: ~
   persistence:
-    enabled: false
+    enabled: true
     pvc:
       name: headplane-data
       accessModes:
