@@ -44,6 +44,9 @@ spec:
               else
                 echo "Headscale config already exists, skipping"
               fi
+              # Ensure headplane (uid 1000, gid 2000) can write the config file
+              chown 1000:2000 /etc/headscale/config.yaml
+              chmod 664 /etc/headscale/config.yaml
           volumeMounts:
             - name: headscale-config
               mountPath: /etc/headscale
