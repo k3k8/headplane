@@ -71,7 +71,7 @@ export default function UserMenu({
           setIsOpen={(isOpen) => {
             if (!isOpen) setModal(null);
           }}
-          userId={user.linkedHeadscaleUser?.id ?? user.id}
+          userId={user.id}
         />
       )}
       {modal === "transfer" && (
