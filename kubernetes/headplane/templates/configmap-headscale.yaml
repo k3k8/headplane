@@ -104,4 +104,4 @@ data:
     {{- end }}
     logtail:
       enabled: false
-    randomize_client_port: false
+    randomize_client_port: {{ .Values.headscale.config.randomizeClientPort }}
