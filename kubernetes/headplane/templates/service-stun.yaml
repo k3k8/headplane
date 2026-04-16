@@ -17,7 +17,7 @@ spec:
     - name: stun
       port: {{ .Values.stun.port }}
       protocol: UDP
-      targetPort: 3478
+      targetPort: {{ .Values.stun.port }}
   selector:
     app: headplane
 {{- end }}
