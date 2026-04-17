@@ -51,6 +51,7 @@ headplane:
         - ALL
     runAsNonRoot: true
     runAsUser: 1000
+  extraVolumeMounts: []
 
 headscale:
   image:
@@ -82,6 +83,7 @@ headscale:
         regionCode: "headscale"
         regionName: "Headscale Embedded DERP"
         privateKeyPath: /etc/headscale/derp_server_private.key
+        automaticallyAddEmbeddedDerpRegion: true
       # External DERP map URLs (set to [] to disable)
       urls:
         - https://controlplane.tailscale.com/derpmap/default
@@ -131,6 +133,7 @@ headscale:
         - ALL
     runAsNonRoot: true
     runAsUser: 1000
+  extraVolumeMounts: []
 
 # Separate LoadBalancer service for STUN (UDP 3478).
 # Required for Tailscale clients to establish direct connections.
@@ -173,4 +176,5 @@ ingress:
   tlsSecretName: headplane-tls
 
 hostAliases: []
+extraVolumes: []
 extraObjects: []
