@@ -115,6 +115,10 @@ headscale:
       allowedUsers: []
     # Randomize the client port for all nodes (Tailscale clients)
     randomizeClientPort: false
+    # Inactivity timeout for ephemeral nodes
+    ephemeralNodeInactivityTimeout: 30m
+    # Default node expiry
+    nodeExpiry: 180d
   # Persistence covers /etc/headscale (config, database, keys).
   # Strongly recommended for production — data is lost on pod restart otherwise.
   persistence:
