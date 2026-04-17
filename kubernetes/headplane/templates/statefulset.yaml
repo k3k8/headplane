@@ -84,6 +84,9 @@ spec:
             - name: headscale-config
               mountPath: /etc/headscale
               readOnly: false
+            {{- if .Values.headscale.extraVolumeMounts }}
+            {{- toYaml .Values.headscale.extraVolumeMounts | nindent 12 }}
+            {{- end }}
         {{- if .Values.headplane.config.generateCredentials }}
         # Generates a Headscale API key and stores it as a Kubernetes Secret.
         # Runs after headscale sidecar is ready, before headplane starts.
@@ -144,6 +147,9 @@ spec:
             - name: headscale-config
               mountPath: /etc/headscale
               readOnly: false
+            {{- if .Values.headplane.extraVolumeMounts }}
+            {{- toYaml .Values.headplane.extraVolumeMounts | nindent 12 }}
+            {{- end }}
       volumes:
         ###
         ### Headplane volumes
@@ -196,3 +202,6 @@ spec:
           emptyDir:
             sizeLimit: 5Gi
           {{- end }}
+        {{- if .Values.extraVolumes }}
+        {{- toYaml .Values.extraVolumes | nindent 8 }}
+        {{- end }}
