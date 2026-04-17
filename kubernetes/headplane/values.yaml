@@ -101,6 +101,7 @@ headscale:
         # acm.org:
         #   - 192.168.1.1
         split: {}
+      overrideLocalDns: true
     oidc:
       enabled: false
       issuerUrl: ""

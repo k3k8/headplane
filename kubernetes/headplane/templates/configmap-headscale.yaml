@@ -83,6 +83,7 @@ data:
           {{- toYaml .Values.headscale.config.dns.nameservers.split | nindent 10 }}
         {{- end }}
       {{- end }}
+      override_local_dns: {{ .Values.headscale.config.dns.overrideLocalDns }}
     unix_socket: /etc/headscale/headscale.sock
     unix_socket_permission: "0770"
     {{- if .Values.headscale.config.oidc.enabled }}
