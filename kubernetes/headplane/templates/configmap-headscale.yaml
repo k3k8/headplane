@@ -27,7 +27,7 @@ data:
         region_name: {{ .Values.headscale.config.derp.server.regionName | quote }}
         stun_listen_addr: "0.0.0.0:{{ .Values.stun.port }}"
         private_key_path: {{ .Values.headscale.config.derp.server.privateKeyPath }}
-        automatically_add_embedded_derp_region: true
+        automatically_add_embedded_derp_region: {{ .Values.headscale.config.derp.server.automaticallyAddEmbeddedDerpRegion }}
         {{- end }}
       {{- if and (not .Values.headscale.config.derp.server.enabled) .Values.headscale.config.derp.urls }}
       urls:
