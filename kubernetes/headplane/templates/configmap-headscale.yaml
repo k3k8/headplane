@@ -39,7 +39,9 @@ data:
       auto_update_enabled: true
       update_frequency: 24h
     disable_check_updates: true
-    ephemeral_node_inactivity_timeout: 30m
+    ephemeral_node_inactivity_timeout: {{ .Values.headscale.config.ephemeralNodeInactivityTimeout }}
+    node:
+      expiry: {{ .Values.headscale.config.nodeExpiry }}
     database:
       type: {{ .Values.headscale.config.database.type }}
       {{- if eq .Values.headscale.config.database.type "sqlite" }}
