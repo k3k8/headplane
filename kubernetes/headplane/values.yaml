@@ -121,9 +121,11 @@ headscale:
     # Default node expiry
     nodeExpiry: 180d
   # Persistence covers /etc/headscale (config, database, keys).
-  # Strongly recommended for production — data is lost on pod restart otherwise.
+  # Disabling this loses noise_private.key on every pod restart, which forces
+  # every node to re-authenticate. With database.type=sqlite it also discards
+  # the entire database (users, nodes, ACL policy). Keep this enabled.
   persistence:
-    enabled: false
+    enabled: true
     pvc:
       name: headscale-config
       accessModes:
