@@ -35,7 +35,12 @@ data:
       {{- else if .Values.headscale.config.derp.server.enabled }}
       urls: []
       {{- end }}
-      paths: {{ toYaml .Values.headscale.config.derp.paths | default "[]" }}
+      {{- if .Values.headscale.config.derp.paths }}
+      paths:
+        {{- toYaml .Values.headscale.config.derp.paths | nindent 8 }}
+      {{- else }}
+      paths: []
+      {{- end }}
       auto_update_enabled: true
       update_frequency: 24h
     disable_check_updates: true
