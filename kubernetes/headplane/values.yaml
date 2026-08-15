@@ -102,6 +102,10 @@ headscale:
         #   - 192.168.1.1
         split: {}
       overrideLocalDns: true
+      # Extra A/AAAA records, managed from the Headplane UI. Must live on the
+      # writable volume — everything else in the config comes from a read-only
+      # ConfigMap. headscale watches this file and applies changes live.
+      extraRecordsPath: /etc/headscale/extra_records.json
     oidc:
       enabled: false
       issuerUrl: ""
