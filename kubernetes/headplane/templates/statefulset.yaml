@@ -19,7 +19,11 @@ spec:
         app: headplane
       annotations:
         checksum/configmap-headplane: {{ include (print $.Template.BasePath "/configmap-headplane.yaml") . | sha256sum }}
-        checksum/configmap-headscale: {{ include (print $.Template.BasePath "/configmap-headscale.yaml") . | sha256sum }}
+        # Deliberately hashes the headscale config *without* the sections
+        # headscale reloads on its own. A DNS or OIDC allow-list change must
+        # not restart the pod — that would take the embedded DERP server down
+        # for a change that applies live anyway.
+        checksum/configmap-headscale: {{ include "headplane.headscaleConfig" (dict "Values" .Values "includeReloadable" false) | sha256sum }}
         checksum/secret-headplane: {{ include (print $.Template.BasePath "/secret-headplane.yaml") . | sha256sum }}
         checksum/secret-headscale: {{ include (print $.Template.BasePath "/secret-headscale.yaml") . | sha256sum }}
     spec:
@@ -30,28 +34,31 @@ spec:
       serviceAccountName: headplane
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       initContainers:
-        # Copy the default Headscale config from ConfigMap to the writable volume on first run.
-        # Headplane needs write access to /etc/headscale/config.yaml in integrated mode.
-        - name: copy-headscale-config
+        # headscale refuses to start when dns.extra_records_path points at a
+        # file that does not exist, and Headplane's reader wants valid JSON,
+        # so seed an empty record set on first run. This is the one piece of
+        # DNS state Headplane still owns; headscale picks up changes to it
+        # without a restart.
+        - name: seed-extra-records
           image: busybox:latest
           command:
             - sh
             - -c
             - |
-              if [ ! -f /etc/headscale/config.yaml ]; then
-                cp /headscale-default-config/config.yaml /etc/headscale/config.yaml
-                echo "Copied default headscale config to volume"
+              set -eu
+              records={{ .Values.headscale.config.dns.extraRecordsPath | quote }}
+              if [ ! -s "$records" ]; then
+                echo "[]" > "$records"
+                echo "Seeded empty extra records at $records"
               else
-                echo "Headscale config already exists, skipping"
+                echo "Extra records already present at $records, skipping"
               fi
-              # Ensure headplane (uid 1000, gid 2000) can write the config file
-              chown 1000:2000 /etc/headscale/config.yaml
-              chmod 664 /etc/headscale/config.yaml
+              # headplane runs as uid 1000, gid 2000 and writes this file
+              chown 1000:2000 "$records"
+              chmod 664 "$records"
           volumeMounts:
-            - name: headscale-config
+            - name: headscale-data
               mountPath: /etc/headscale
-            - name: headscale-default-config
-              mountPath: /headscale-default-config
         # Headscale runs as a sidecar so it starts before headplane and restarts on failure.
         - name: headscale
           image: "{{ required "headscale.image.repository is required" .Values.headscale.image.repository }}:{{ required "headscale.image.tag is required" .Values.headscale.image.tag }}"
@@ -70,6 +77,11 @@ spec:
               containerPort: 3478
               protocol: UDP
           env:
+            # Read the config from the ConfigMap mount rather than the default
+            # /etc/headscale/config.yaml, which keeps the writable volume for
+            # state only (keys, database, socket, extra records).
+            - name: HEADSCALE_CONFIG
+              value: /etc/headscale-config/config.yaml
             {{- if .Values.headscale.config.oidc.enabled }}
             - name: HEADSCALE_OIDC_CLIENT_SECRET
               valueFrom:
@@ -86,9 +98,12 @@ spec:
             {{- end }}
           securityContext: {{- toYaml .Values.headscale.securityContext | nindent 12 }}
           volumeMounts:
-            - name: headscale-config
+            - name: headscale-data
               mountPath: /etc/headscale
               readOnly: false
+            - name: headscale-config
+              mountPath: /etc/headscale-config
+              readOnly: true
             {{- if .Values.headscale.extraVolumeMounts }}
             {{- toYaml .Values.headscale.extraVolumeMounts | nindent 12 }}
             {{- end }}
@@ -149,9 +164,15 @@ spec:
             - name: headplane-data
               mountPath: /var/lib/headplane
               readOnly: false
-            - name: headscale-config
+            # Writable: Headplane owns the extra DNS records file here.
+            - name: headscale-data
               mountPath: /etc/headscale
               readOnly: false
+            # Read-only: Headplane detects this and renders the DNS settings
+            # as managed-elsewhere instead of pretending they are editable.
+            - name: headscale-config
+              mountPath: /etc/headscale-config
+              readOnly: true
             {{- if .Values.headplane.extraVolumeMounts }}
             {{- toYaml .Values.headplane.extraVolumeMounts | nindent 12 }}
             {{- end }}
@@ -194,12 +215,15 @@ spec:
         ###
         ### Headscale volumes
         ###
-        # Default config template — init container copies this to the writable volume on first run
-        - name: headscale-default-config
-          configMap:
-            name: headscale-default-config
-        # Writable volume for /etc/headscale (config + database + keys + unix socket)
+        # The configuration itself, read-only. Mounted as a directory rather
+        # than with subPath so kubelet keeps it up to date as the ConfigMap
+        # changes; a subPath mount is published once and never refreshed.
         - name: headscale-config
+          configMap:
+            name: headscale-config
+        # Writable volume for /etc/headscale: database, keys, unix socket and
+        # the extra DNS records file. No longer holds the configuration.
+        - name: headscale-data
           {{- if .Values.headscale.persistence.enabled }}
           persistentVolumeClaim:
             claimName: {{ .Values.headscale.persistence.pvc.name }}
