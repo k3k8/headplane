@@ -19,8 +19,14 @@ data:
       public_url: {{ .Values.headscale.config.url }}
       {{- end }}
       api_key_path: /var/secrets/headplane/headscale/{{ .Values.headplane.config.headscaleApiKey.secretKey }}
-      config_path: /etc/headscale/config.yaml
+      # Read-only ConfigMap mount. Headplane detects that it cannot write here
+      # and renders the DNS settings as read-only rather than accepting edits
+      # that would be silently overwritten on the next sync.
+      config_path: /etc/headscale-config/config.yaml
       config_strict: true
+      # The one part of DNS that stays editable from the UI. headscale watches
+      # this file and applies changes without a restart.
+      dns_records_path: {{ .Values.headscale.config.dns.extraRecordsPath }}
     integration:
       kubernetes:
         enabled: true
