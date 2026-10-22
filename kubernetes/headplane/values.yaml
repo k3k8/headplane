@@ -1,6 +1,6 @@
 headplane:
   image:
-    repository: ghcr.io/k3k8/headplane
+    repository: ghcr.io/tale/headplane
     pullPolicy: IfNotPresent
     # Defaults to Chart.AppVersion
     tag: ""

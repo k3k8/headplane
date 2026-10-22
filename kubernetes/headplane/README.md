@@ -43,6 +43,26 @@ the next restart.
 > `includeReloadable` guards in `_helpers.tpl`, or changing it will silently do
 > nothing.
 
+## Upgrading to 0.1.11
+
+- **Headplane comes from the official image**, `ghcr.io/tale/headplane:0.8.1`.
+  The fork no longer carries any application code, so there is nothing left
+  to build. 0.8.x needs headscale 0.27 or newer. Its database migrates on
+  first start, so going back to an older image is not supported.
+- **`headscale.config.randomizeClientPort` is gone.** headscale 0.29 refuses
+  to start while `randomize_client_port` is in its config, even as `false`,
+  and the chart now fails the render if the value is set. Delete it from your
+  values. If you used it, set `"randomizeClientPort": true` at the top level
+  of the policy, but only once headscale 0.29 is running: 0.28 rejects the
+  unknown field and stops loading the policy.
+- **The grpc port (50443) is removed** from the Service and the container,
+  along with `grpc_listen_addr` and `grpc_allow_insecure`. headscale no longer
+  has a gRPC API.
+
+headscale itself cannot skip a minor version. A database last used by 0.28
+must be started once with 0.29.x before a 0.30 image will accept it, so go
+0.28 → 0.29.x → 0.30.x and back up the database before each step.
+
 ## Upgrading from 0.1.9 or earlier
 
 Before 0.1.10 an init container copied the ConfigMap to `/etc/headscale/config.yaml`
