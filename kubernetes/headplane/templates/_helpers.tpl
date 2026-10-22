@@ -29,8 +29,6 @@ Arguments: a dict with `Values` and `includeReloadable`.
 server_url: {{ .Values.headscale.config.url }}
 listen_addr: 0.0.0.0:8080
 metrics_listen_addr: 0.0.0.0:9090
-grpc_listen_addr: 0.0.0.0:50443
-grpc_allow_insecure: false
 noise:
   private_key_path: /etc/headscale/noise_private.key
 prefixes:
@@ -146,5 +144,12 @@ oidc:
 {{- end }}
 logtail:
   enabled: false
-randomize_client_port: {{ .Values.headscale.config.randomizeClientPort }}
+{{- /*
+headscale 0.29 refuses to start when randomize_client_port is present at all,
+even as false, and so does its CLI. Fail the render instead of dropping the
+value silently: the setting now lives in the policy.
+*/}}
+{{- if hasKey .Values.headscale.config "randomizeClientPort" }}
+{{- fail "headscale.config.randomizeClientPort was removed in headscale 0.29: delete it and set \"randomizeClientPort\": true at the top level of the policy instead" }}
+{{- end }}
 {{- end -}}

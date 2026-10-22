@@ -70,9 +70,6 @@ spec:
             - name: api
               containerPort: 8080
               protocol: TCP
-            - name: grpc
-              containerPort: 50443
-              protocol: TCP
             - name: stun
               containerPort: 3478
               protocol: UDP

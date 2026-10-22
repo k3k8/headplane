@@ -118,8 +118,6 @@ headscale:
       pkceEnabled: true
       allowedDomains: []
       allowedUsers: []
-    # Randomize the client port for all nodes (Tailscale clients)
-    randomizeClientPort: false
     # Inactivity timeout for ephemeral nodes
     ephemeralNodeInactivityTimeout: 30m
     # Default node expiry
